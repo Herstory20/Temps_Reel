@@ -76,7 +76,7 @@ private:
     RT_TASK th_openComRobot;
     RT_TASK th_startRobot;
     RT_TASK th_move;
-    
+    RT_TASK th_battery;
     /**********************************************************************/
     /* Mutex                                                              */
     /**********************************************************************/
@@ -148,7 +148,15 @@ private:
      * @return Message read
      */
     Message *ReadInQueue(RT_QUEUE *queue);
-
+    
+    /**
+     */
+    void BatteryLevel(void *arg);
+    
+    /**
+     * Count the number of communication errors and close the communication if it exceeds 3
+     */
+    void Count(Message *msgSend);
 };
 
 #endif // __TASKS_H__ 

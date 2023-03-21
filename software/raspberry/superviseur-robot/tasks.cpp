@@ -27,6 +27,8 @@
 #define PRIORITY_TSTARTROBOT 20
 #define PRIORITY_TCAMERA 21
 
+int cpterror = 0 ;
+bool toggleBattery = false;
 /*
  * Some remarks:
  * 1- This program is mostly a template. It shows you how to create tasks, semaphore
@@ -123,6 +125,10 @@ void Tasks::Init() {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    if (err = rt_task_create(&th_battery, "th_battery", 0, PRIORITY_TMOVE, 0)) {
+        cerr << "Error task create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
     cout << "Tasks created successfully" << endl << flush;
 
     /**************************************************************************************/
@@ -164,6 +170,10 @@ void Tasks::Run() {
         exit(EXIT_FAILURE);
     }
     if (err = rt_task_start(&th_move, (void(*)(void*)) & Tasks::MoveTask, this)) {
+        cerr << "Error task start: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+    if (err = rt_task_start(&th_battery, (void(*)(void*)) & Tasks::BatteryLevel, this )){
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
@@ -275,6 +285,9 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             rt_mutex_acquire(&mutex_move, TM_INFINITE);
             move = msgRcv->GetID();
             rt_mutex_release(&mutex_move);
+        } else if (msgRcv->CompareID(MESSAGE_ROBOT_BATTERY_GET)){
+            cout << "réception message get battery";
+            toggleBattery = true;
         }
         delete(msgRcv); // mus be deleted manually, no consumer
     }
@@ -331,6 +344,7 @@ void Tasks::StartRobotTask(void *arg) {
         cout << "Start robot without watchdog (";
         rt_mutex_acquire(&mutex_robot, TM_INFINITE);
         msgSend = robot.Write(robot.StartWithoutWD());
+        Count(msgSend);
         rt_mutex_release(&mutex_robot);
         cout << msgSend->GetID();
         cout << ")" << endl;
@@ -352,6 +366,7 @@ void Tasks::StartRobotTask(void *arg) {
 void Tasks::MoveTask(void *arg) {
     int rs;
     int cpMove;
+    Message * msgSend;
     
     cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
     // Synchronization barrier (waiting that all tasks are starting)
@@ -376,12 +391,70 @@ void Tasks::MoveTask(void *arg) {
             cout << " move: " << cpMove;
             
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
-            robot.Write(new Message((MessageID)cpMove));
+            msgSend = robot.Write(new Message((MessageID)cpMove));
+            Count(msgSend);
             rt_mutex_release(&mutex_robot);
         }
         cout << endl << flush;
     }
 }
+
+/**
+ * @brief Thread handling battery level communication.
+ */
+void Tasks::BatteryLevel(void *arg) {
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////// A FINIR ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    int rs;
+    Message * msgSend;
+    MessageBattery * levelBat;
+    
+    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
+    // Synchronization barrier (waiting that all tasks are starting)
+    rt_sem_p(&sem_barrier, TM_INFINITE);
+    
+    /**************************************************************************************/
+    /* The task starts here                                                               */
+    /**************************************************************************************/
+    rt_task_set_periodic(NULL, TM_NOW, 500000000);
+
+    while (1) {
+        rt_task_wait_period(NULL);
+        rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
+        rs = robotStarted; 
+        rt_mutex_release(&mutex_robotStarted);
+        if ((rs == 1) && (toggleBattery)) {
+            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+            levelBat = (MessageBattery*)robot.Write(new Message(MESSAGE_ROBOT_BATTERY_GET));
+            rt_mutex_release(&mutex_robot);
+            cout << " Battery level: " << levelBat;
+            WriteInQueue(&q_messageToMon, levelBat);
+            
+        }
+    }
+}
+
+
+/**
+ * 
+ * @param queue
+ * @param msg
+ */
+void Tasks::Count( Message * msgSend){
+
+    if ( (msgSend->GetID() == MESSAGE_ANSWER_ROBOT_UNKNOWN_COMMAND) || (msgSend->GetID() == MESSAGE_ANSWER_ROBOT_TIMEOUT) || (msgSend->GetID() == MESSAGE_ANSWER_COM_ERROR) ) 
+            {
+                cpterror++;
+                cout << "On a :" << cpterror << "erreurs";
+            } else {
+                cpterror=0;
+                cout << "Tout va bien : " << cpterror ;
+            }
+            if (cpterror > 3 ) {
+                
+                Message * msg = new Message(MESSAGE_ROBOT_COM_CLOSE);
+                WriteInQueue(&q_messageToMon,msg);
+            }
+} 
 
 /**
  * Write a message in a given queue
