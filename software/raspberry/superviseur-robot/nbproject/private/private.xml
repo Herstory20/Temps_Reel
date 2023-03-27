@@ -9,9 +9,13 @@
         <group>
             <file>file:/home/bzhong/Bureau/4A/Temps_Reel/software/raspberry/superviseur-robot/main.cpp</file>
             <file>file:/home/bzhong/Bureau/4A/Temps_Reel/software/raspberry/superviseur-robot/lib/messages.h</file>
+            <file>file:/home/bzhong/Bureau/4A/Temps_Reel/software/raspberry/superviseur-robot/lib/commonitor.cpp</file>
+            <file>file:/home/bzhong/Bureau/4A/Temps_Reel/software/raspberry/superviseur-robot/lib/camera.h</file>
             <file>file:/home/bzhong/Bureau/4A/Temps_Reel/software/raspberry/superviseur-robot/lib/comrobot.cpp</file>
             <file>file:/home/bzhong/Bureau/4A/Temps_Reel/software/raspberry/superviseur-robot/lib/comrobot.h</file>
             <file>file:/home/bzhong/Bureau/4A/Temps_Reel/software/raspberry/superviseur-robot/lib/messages.cpp</file>
+            <file>file:/home/bzhong/Bureau/4A/Temps_Reel/software/raspberry/superviseur-robot/lib/img.cpp</file>
+            <file>file:/home/bzhong/Bureau/4A/Temps_Reel/software/raspberry/superviseur-robot/lib/camera.cpp</file>
             <file>file:/home/bzhong/Bureau/4A/Temps_Reel/software/raspberry/superviseur-robot/tasks.h</file>
             <file>file:/home/bzhong/Bureau/4A/Temps_Reel/software/raspberry/superviseur-robot/tasks.cpp</file>
         </group>

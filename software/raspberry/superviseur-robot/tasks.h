@@ -64,6 +64,7 @@ private:
     /**********************************************************************/
     ComMonitor monitor;
     ComRobot robot;
+    Camera camera;
     int robotStarted = 0;
     int move = MESSAGE_ROBOT_STOP;
     
@@ -77,6 +78,8 @@ private:
     RT_TASK th_startRobot;
     RT_TASK th_move;
     RT_TASK th_battery;
+    RT_TASK th_camera;
+    RT_TASK th_watchdog;
     /**********************************************************************/
     /* Mutex                                                              */
     /**********************************************************************/
@@ -157,6 +160,12 @@ private:
      * Count the number of communication errors and close the communication if it exceeds 3
      */
     void Count(Message *msgSend);
+    
+    /**
+     */
+    void CameraOpen(void *arg);
+    
+    void WatchdogCount(void *arg);
 };
 
 #endif // __TASKS_H__ 
