@@ -159,13 +159,15 @@ private:
     /**
      * Count the number of communication errors and close the communication if it exceeds 3
      */
-    void Count(Message *msgSend);
+    void Count(Message *msgSend); 
     
     /**
      */
     void CameraOpen(void *arg);
     
     void WatchdogCount(void *arg);
+    
+    void ArenaCapture(Img *current);
 };
 
 #endif // __TASKS_H__ 

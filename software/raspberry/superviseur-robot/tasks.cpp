@@ -18,6 +18,7 @@
 #include "tasks.h"
 #include <stdexcept>
 
+
 // Déclaration des priorités des taches
 #define PRIORITY_TSERVER 30
 #define PRIORITY_TOPENCOMROBOT 20
@@ -33,7 +34,12 @@ int cpterror = 0 ;
 bool toggleBattery = false;
 bool toggleCam = false;
 bool togglewd = false;
+bool toggleConfirmArena = false;
+bool toggleInfirmArena = false;
+bool togglePrintArena = false;
 int cptwd = 0;
+Arena arenaSaved;
+Img * imgcurrent;
 /*
  * Some remarks:
  * 1- This program is mostly a template. It shows you how to create tasks, semaphore
@@ -318,6 +324,13 @@ void Tasks::ReceiveFromMonTask(void *arg) {
         }else if (msgRcv->CompareID(MESSAGE_ROBOT_START_WITH_WD)){
             cout << "réception message with watchdog";
             togglewd = true;
+            rt_sem_v(&sem_startRobot);
+        }else if (msgRcv->CompareID(MESSAGE_CAM_ASK_ARENA)){
+            ArenaCapture(imgcurrent);
+        }else if (msgRcv->CompareID(MESSAGE_CAM_ARENA_CONFIRM)){
+            toggleConfirmArena = true;
+        }else if (msgRcv->CompareID(MESSAGE_CAM_ARENA_INFIRM)){
+            toggleInfirmArena = true;
         }
         delete(msgRcv); // mus be deleted manually, no consumer
     }
@@ -482,7 +495,6 @@ void Tasks::CameraOpen(void *arg) {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////// A FINIR ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     int rs;
     Message * msgSend;
-    Img * img;
     MessageImg *msgImg ;
 
     
@@ -503,11 +515,13 @@ void Tasks::CameraOpen(void *arg) {
         if ((rs == 1) && (toggleCam)) {
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
             if (camera.Open()) {
-                img = new Img(camera.Grab());
-                msgImg = new MessageImg(MESSAGE_CAM_IMAGE, img);
+                imgcurrent = new Img(camera.Grab());
+                if(togglePrintArena){
+                    imgcurrent->DrawArena(arenaSaved);
+                }
+                msgImg = new MessageImg(MESSAGE_CAM_IMAGE, imgcurrent);
                 WriteInQueue(&q_messageToMon, new Message(MESSAGE_ANSWER_ACK));
                 WriteInQueue(&q_messageToMon, msgImg);
-                
             }
             else {
                 WriteInQueue(&q_messageToMon, new Message(MESSAGE_ANSWER_NACK));
@@ -544,6 +558,43 @@ void Tasks::Count( Message * msgSend){
             }
 } 
 
+void Tasks::ArenaCapture(Img * current){
+    Arena arena;
+    Img * arenaimg;
+    Message * msg;
+    MessageImg * msgImg ;
+    
+    toggleCam = false;
+    for (int i = 0; i<=50; i++){
+        arena = current->SearchArena();
+        if(!arena.IsEmpty()) break;
+        cout << "On a pas d'arène TEST n°:" << i << endl << flush;
+        if(camera.Open()) current = new Img(camera.Grab());
+    }
+    
+    if (arena.IsEmpty()){
+        msg = new Message(MESSAGE_ANSWER_NACK);
+        WriteInQueue(&q_messageToMon, msg);
+        cout << "On a pas d'arène:"  << endl << flush;
+        
+    }else {
+        cout << "On a une arène:"  << endl << flush;
+        current->DrawArena(arena);
+        cout << "On a affiché l'arène:"  << endl << flush;
+        msgImg = new MessageImg(MESSAGE_CAM_IMAGE, arenaimg);
+        WriteInQueue(&q_messageToMon, msgImg);
+        if(toggleConfirmArena){
+            toggleCam = true;
+            arenaSaved = arena;
+            togglePrintArena = true;
+        }else if(toggleInfirmArena){
+            toggleCam = true;
+        } 
+    }
+    
+}
+
+
 void Tasks::WatchdogCount(void *arg){
     Message * msg;
     Message * msgSend;
@@ -567,9 +618,15 @@ void Tasks::WatchdogCount(void *arg){
             rt_mutex_acquire(&mutex_robot, TM_INFINITE);
             msg = robot.ReloadWD();
             msgSend = robot.Write(msg);
+            if (cptwd > 0) {
+                cptwd --;
+                cout << "On a decrémenté wd ; on a :" << cptwd << "erreurs"<< endl << flush;
+            }
             if ( (msgSend->GetID() == MESSAGE_ANSWER_ROBOT_UNKNOWN_COMMAND) || (msgSend->GetID() == MESSAGE_ANSWER_ROBOT_TIMEOUT) || (msgSend->GetID() == MESSAGE_ANSWER_COM_ERROR) ){
                 cptwd ++;
+                cout << "On a incrémenté wd ; on a :" << cptwd << "erreurs" << endl << flush;
                 if (cptwd >= 3){
+                    cout << "END with WATCHDOG :" << cptwd << "erreurs" << endl << flush;
                     Message * msg = new Message(MESSAGE_ROBOT_COM_CLOSE);
                     WriteInQueue(&q_messageToMon,msg);
                 }
