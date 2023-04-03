@@ -29,6 +29,8 @@
 #define PRIORITY_TCAMERA 19
 #define PRIORITY_TBATTERY 18
 #define PRIORITY_TWATCHDOG 17
+#define PRIORITY_TARENA 16
+#define PRIORITY_TPOSITION 15
 
 int cpterror = 0 ;
 bool toggleBattery = false;
@@ -36,8 +38,12 @@ bool toggleCam = false;
 bool togglewd = false;
 bool toggleConfirmArena = false;
 bool toggleInfirmArena = false;
+bool toggleArena = false;
 bool togglePrintArena = false;
+bool togglePosition = false;
+bool togglePrintPosition = false;
 int cptwd = 0;
+std::list<Position> pos;
 Arena arenaSaved;
 Img * imgcurrent;
 /*
@@ -148,6 +154,14 @@ void Tasks::Init() {
         cerr << "Error task create: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    if (err = rt_task_create(&th_arena, "th_arena", 0, PRIORITY_TARENA, 0)) {
+        cerr << "Error task create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+     if (err = rt_task_create(&th_position, "th_postion", 0, PRIORITY_TPOSITION, 0)) {
+        cerr << "Error task create: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
     cout << "Tasks created successfully" << endl << flush;
 
     /**************************************************************************************/
@@ -204,6 +218,15 @@ void Tasks::Run() {
         cerr << "Error task start: " << strerror(-err) << endl << flush;
         exit(EXIT_FAILURE);
     }
+    if (err = rt_task_start(&th_arena, (void(*)(void*)) & Tasks::ArenaCapture, this )){
+        cerr << "Error task start: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+    if (err = rt_task_start(&th_position, (void(*)(void*)) & Tasks::PositionTask, this )){
+        cerr << "Error task start: " << strerror(-err) << endl << flush;
+        exit(EXIT_FAILURE);
+    }
+    
 
     cout << "Tasks launched" << endl << flush;
 }
@@ -326,13 +349,17 @@ void Tasks::ReceiveFromMonTask(void *arg) {
             togglewd = true;
             rt_sem_v(&sem_startRobot);
         }else if (msgRcv->CompareID(MESSAGE_CAM_ASK_ARENA)){
-            ArenaCapture(imgcurrent);
+            toggleArena = true;
         }else if (msgRcv->CompareID(MESSAGE_CAM_ARENA_CONFIRM)){
             toggleConfirmArena = true;
         }else if (msgRcv->CompareID(MESSAGE_CAM_ARENA_INFIRM)){
             toggleInfirmArena = true;
-        }
-        delete(msgRcv); // mus be deleted manually, no consumer
+        } else if (msgRcv->CompareID(MESSAGE_CAM_POSITION_COMPUTE_START)){
+            togglePosition = true;
+        } else if (msgRcv->CompareID(MESSAGE_CAM_POSITION_COMPUTE_STOP)){
+            togglePosition = false;
+        } 
+        delete(msgRcv); // must be deleted manually, no consumer
     }
 }
 
@@ -509,15 +536,18 @@ void Tasks::CameraOpen(void *arg) {
 
     while (1) {
         rt_task_wait_period(NULL);
-        rt_mutex_acquire(&mutex_robotStarted, TM_INFINITE);
-        rs = robotStarted; 
-        rt_mutex_release(&mutex_robotStarted);
-        if ((rs == 1) && (toggleCam)) {
-            rt_mutex_acquire(&mutex_robot, TM_INFINITE);
+        
+        if(toggleCam) {
+            cout << "--------------------------------------------------------------------------"  << endl << flush;
+            
+            rt_mutex_acquire(&mutex_camera, TM_INFINITE );
             if (camera.Open()) {
                 imgcurrent = new Img(camera.Grab());
                 if(togglePrintArena){
                     imgcurrent->DrawArena(arenaSaved);
+                }
+                if(togglePrintPosition){
+                    imgcurrent->DrawAllRobots(pos);
                 }
                 msgImg = new MessageImg(MESSAGE_CAM_IMAGE, imgcurrent);
                 WriteInQueue(&q_messageToMon, new Message(MESSAGE_ANSWER_ACK));
@@ -526,12 +556,44 @@ void Tasks::CameraOpen(void *arg) {
             else {
                 WriteInQueue(&q_messageToMon, new Message(MESSAGE_ANSWER_NACK));
             }
-            rt_mutex_release(&mutex_robot);  
+            rt_mutex_release(&mutex_camera);  
         }
         else if (camera.IsOpen() && !toggleCam)
         {
             camera.Close();
             WriteInQueue(&q_messageToMon, new Message(MESSAGE_ANSWER_ACK));
+        }
+        
+    }
+}
+
+/**
+ * @brief Thread handling position.
+ */
+
+void Tasks::PositionTask(void *arg) {
+
+    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
+    // Synchronization barrier (waiting that all tasks are starting)
+    rt_sem_p(&sem_barrier, TM_INFINITE);
+    
+    /**************************************************************************************/
+    /* The task starts here                                                               */
+    /**************************************************************************************/
+   rt_task_set_periodic(NULL, TM_NOW, 100000000);
+
+    while (1) {
+        rt_task_wait_period(NULL);
+        
+        if(togglePosition) {
+            rt_mutex_acquire(&mutex_camera, TM_INFINITE );
+            if (camera.Open()) {
+                if(!arenaSaved.IsEmpty()){
+                    pos = imgcurrent->SearchRobot(arenaSaved);  
+                    togglePrintPosition = true; // C'EST JUSTE POUR QUE LES PREMIERS MARCHENT
+                }
+            }
+            rt_mutex_release(&mutex_camera);  
         }
     }
 }
@@ -551,48 +613,55 @@ void Tasks::Count( Message * msgSend){
                 cpterror=0;
                 cout << "Tout va bien : " << cpterror ;
             }
-            if (cpterror > 3 ) {
-                
+            if (cpterror > 10 ) { // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ A REMETTRE A TROIS
                 Message * msg = new Message(MESSAGE_ROBOT_COM_CLOSE);
                 WriteInQueue(&q_messageToMon,msg);
             }
 } 
 
-void Tasks::ArenaCapture(Img * current){
+void Tasks::ArenaCapture(void *arg){
+    
     Arena arena;
-    Img * arenaimg;
     Message * msg;
     MessageImg * msgImg ;
     
-    toggleCam = false;
-    for (int i = 0; i<=50; i++){
-        arena = current->SearchArena();
-        if(!arena.IsEmpty()) break;
-        cout << "On a pas d'arène TEST n°:" << i << endl << flush;
-        if(camera.Open()) current = new Img(camera.Grab());
-    }
+    cout << "Start " << __PRETTY_FUNCTION__ << endl << flush;
+    // Synchronization barrier (waiting that all tasks are starting)
+    rt_sem_p(&sem_barrier, TM_INFINITE);
     
-    if (arena.IsEmpty()){
-        msg = new Message(MESSAGE_ANSWER_NACK);
-        WriteInQueue(&q_messageToMon, msg);
-        cout << "On a pas d'arène:"  << endl << flush;
-        
-    }else {
-        cout << "On a une arène:"  << endl << flush;
-        current->DrawArena(arena);
-        cout << "On a affiché l'arène:"  << endl << flush;
-        msgImg = new MessageImg(MESSAGE_CAM_IMAGE, arenaimg);
-        WriteInQueue(&q_messageToMon, msgImg);
-        if(toggleConfirmArena){
-            toggleCam = true;
-            arenaSaved = arena;
-            togglePrintArena = true;
-        }else if(toggleInfirmArena){
-            toggleCam = true;
-        } 
-    }
+    /**************************************************************************************/
+    /* The task starts here                                                               */
+    /**************************************************************************************/
+    rt_task_set_periodic(NULL, TM_NOW, 1000000000);
     
+    while(1){
+        rt_task_wait_period(NULL);
+        if (toggleArena){
+            toggleCam = false;
+            arena = imgcurrent->SearchArena();
+            if(!arena.IsEmpty()){
+                toggleArena = false;
+                imgcurrent->DrawArena(arena);
+                msgImg = new MessageImg(MESSAGE_CAM_IMAGE, imgcurrent);
+                WriteInQueue(&q_messageToMon, msgImg);
+                if(toggleConfirmArena){
+                    arenaSaved = arena;
+                    cout << "On a une confirmé"  << endl << flush;
+                    togglePrintArena = true;
+                    toggleCam = true;
+                }else if(toggleInfirmArena){
+                    toggleCam = true;
+                }
+            }else {
+                msg = new Message(MESSAGE_ANSWER_NACK);
+                WriteInQueue(&q_messageToMon, msg);
+                cout << "On a pas d'arène:"  << endl << flush;   
+                toggleCam = true;
+            }
+        }
+    }
 }
+
 
 
 void Tasks::WatchdogCount(void *arg){

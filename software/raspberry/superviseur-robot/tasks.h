@@ -80,6 +80,8 @@ private:
     RT_TASK th_battery;
     RT_TASK th_camera;
     RT_TASK th_watchdog;
+    RT_TASK th_position;
+    RT_TASK th_arena;
     /**********************************************************************/
     /* Mutex                                                              */
     /**********************************************************************/
@@ -87,6 +89,7 @@ private:
     RT_MUTEX mutex_robot;
     RT_MUTEX mutex_robotStarted;
     RT_MUTEX mutex_move;
+    RT_MUTEX mutex_camera;
 
     /**********************************************************************/
     /* Semaphores                                                         */
@@ -95,6 +98,8 @@ private:
     RT_SEM sem_openComRobot;
     RT_SEM sem_serverOk;
     RT_SEM sem_startRobot;
+    RT_SEM sem_arena;
+    
 
     /**********************************************************************/
     /* Message queues                                                     */
@@ -167,7 +172,9 @@ private:
     
     void WatchdogCount(void *arg);
     
-    void ArenaCapture(Img *current);
+    void ArenaCapture(void *arg);
+    
+    void PositionTask(void *arg);
 };
 
 #endif // __TASKS_H__ 
